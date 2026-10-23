@@ -56,6 +56,14 @@ async fn main() -> anyhow::Result<()> {
     let conn = Connection::open(&db_path)?;
     db::init(&conn)?;
 
+    // Seed account -> Discord id links from config (RK_DISCORD_IDS="name:id,...").
+    // Discord OAuth replaces this source in phase 2.
+    for pair in std::env::var("RK_DISCORD_IDS").unwrap_or_default().split(',') {
+        if let Some((name, id)) = pair.split_once(':') {
+            let _ = db::set_account_discord(&conn, name.trim(), id.trim());
+        }
+    }
+
     let state = Arc::new(AppState {
         db: Mutex::new(conn),
         tokens,

@@ -8,6 +8,48 @@ function authHeaders() {
   return t ? { Authorization: 'Bearer ' + t } : {};
 }
 
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function playerLink(name) {
+  return `<a href="#" data-player="${esc(name)}">${esc(name)}</a>`;
+}
+
+function raceRow(label, stats) {
+  if (!stats || !stats.length) return '';
+  const rows = stats
+    .map((r) => {
+      const total = r.games || 1;
+      const wr = Math.round((r.wins / total) * 100);
+      return `<tr><td>${esc(label)} ${esc(r.race)}</td><td>${r.wins}–${r.losses}</td><td>${wr}%</td><td>${r.games}</td></tr>`;
+    })
+    .join('');
+  return rows;
+}
+
+async function showStats(name) {
+  const res = await fetch('/api/stats/' + encodeURIComponent(name));
+  if (!res.ok) return;
+  const s = await res.json();
+  const panel = document.getElementById('stats');
+  const total = s.games || 1;
+  const winrate = Math.round((s.wins / total) * 100);
+  const weeks = s.weekly
+    .map((w) => `<span title="${esc(w.week)}">${w.wins}W/${w.games - w.wins}L</span>`)
+    .join(' → ');
+  panel.innerHTML = `
+    <h2>${playerLink(s.id)} ${s.discord_id ? `<span class="dim">(discord ${esc(s.discord_id)})</span>` : ''}</h2>
+    <p><b>${s.wins}</b> wins · <b>${s.losses}</b> losses · <b>${winrate}%</b> over ${s.games} games</p>
+    <h3>vs opponent race</h3>
+    <table>${raceRow('vs', s.vs_race) || '<tr><td colspan="4">no data</td></tr>'}</table>
+    <h3>while playing</h3>
+    <table>${raceRow('as', s.own_race) || '<tr><td colspan="4">no data</td></tr>'}</table>
+    <h3>progress (wins/games per week)</h3>
+    <p class="small">${weeks || 'no data'}</p>`;
+  panel.style.display = 'block';
+}
+
 async function load() {
   const q = new URLSearchParams();
   const take = (id) => {
@@ -21,7 +63,6 @@ async function load() {
   take('from');
   take('to');
   if (followed.value === '1') {
-    // Following is per-token: the server resolves the account from the token.
     q.set('followed_by', '@me');
   }
   q.set('limit', '100');
@@ -36,7 +77,7 @@ async function load() {
     const players = m.players
       .map((p) => {
         const cls = p.result === 'won' ? 'won' : p.result === 'lost' ? 'lost' : '';
-        return `<span class="${cls}">${esc(p.name)} (${esc(p.race)})${p.result === 'won' ? ' ✓' : p.result === 'lost' ? ' ✗' : ''}</span>`;
+        return `<span class="${cls}">${playerLink(p.name)} (${esc(p.race)})${p.result === 'won' ? ' ✓' : p.result === 'lost' ? ' ✗' : ''}</span>`;
       })
       .join(' &nbsp; ');
     tr.innerHTML = `
@@ -59,10 +100,12 @@ async function load() {
       b.textContent = res.ok ? 'following ✓' : 'need token';
     });
   });
-}
-
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  document.querySelectorAll('a[data-player]').forEach((a) => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      showStats(a.dataset.player);
+    });
+  });
 }
 
 document.getElementById('go').addEventListener('click', load);
@@ -74,3 +117,4 @@ document.getElementById('reset').addEventListener('click', () => {
   load();
 });
 load();
+

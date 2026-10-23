@@ -23,6 +23,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/matches/{uuid}/replay", get(replay_file))
         .route("/api/players/{name}/follow", put(follow).delete(unfollow))
         .route("/api/me/following", get(following))
+        .route("/api/stats/{id}", get(player_stats))
+        .route("/api/me/discord", post(claim_discord))
         .with_state(state)
 }
 
@@ -121,6 +123,12 @@ async fn upload_match(
             eprintln!("upload: db error: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
+        // Attach Discord identities: the uploader's own id, plus every other
+        // player's already-known id (backfilled across their history).
+        let names: Vec<String> = record.players.iter().map(|(n, _, _, _)| n.clone()).collect();
+        if let Err(e) = db::attach_discord_ids(&conn, &record.uploaded_by, &names) {
+            eprintln!("upload: identity attach error: {e}");
+        }
     }
 
     // Discord announcement (best-effort).
@@ -142,6 +150,7 @@ async fn upload_match(
                     race: race.clone(),
                     slot: *slot,
                     result: result.clone(),
+                    discord_id: String::new(),
                 })
                 .collect(),
         };
@@ -287,6 +296,59 @@ async fn following(
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
+}
+
+/// Stats for one player identity: a Discord id, or a bare player name when no
+/// Discord id is known yet. Overall W/L, per-own-race and per-opponent-race
+/// breakdowns, weekly progress, and the ten most recent matches.
+async fn player_stats(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    if id.len() > 128 {
+        return (StatusCode::BAD_REQUEST, "identity too long").into_response();
+    }
+    let conn = state.db.lock().unwrap();
+    match db::player_stats(&conn, &id) {
+        Ok(stats) => Json(stats).into_response(),
+        Err(e) => {
+            eprintln!("stats: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ClaimDiscord {
+    #[serde(rename = "discordId")]
+    discord_id: String,
+}
+
+/// Link the authenticated account to a Discord id (manually for now; the Discord
+/// OAuth flow of phase 2 calls this after the token exchange).
+async fn claim_discord(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<ClaimDiscord>,
+) -> Response {
+    let account = match authenticate(&state, &headers) {
+        Ok(a) => a,
+        Err(code) => return code.into_response(),
+    };
+    let id = body.discord_id.trim().to_string();
+    if id.is_empty() || id.len() > 64 || !id.chars().all(|c| c.is_ascii_digit()) {
+        return (StatusCode::BAD_REQUEST, "invalid discord id").into_response();
+    }
+    let conn = state.db.lock().unwrap();
+    if let Err(e) = db::set_account_discord(&conn, &account, &id) {
+        eprintln!("claim: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+    // Backfill the account's own history under the new identity.
+    if let Err(e) = db::backfill_discord(&conn, &account, &id) {
+        eprintln!("claim backfill: {e}");
+    }
+    Json(serde_json::json!({ "account": account, "discordId": id })).into_response()
 }
 
 #[cfg(test)]
@@ -470,5 +532,66 @@ mod tests {
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let value = serde_json::from_slice(&bytes).unwrap_or(serde_json::json!({}));
         (status, value)
+    }
+
+    fn match_two(uuid: &str, a: (&str, &str, &str), b: (&str, &str, &str)) -> serde_json::Value {
+        serde_json::json!({
+            "matchUuid": uuid,
+            "meta": {
+                "map": "Map",
+                "matchup": format!("{}v{}", a.1, b.1),
+                "players": [
+                    { "name": a.0, "race": a.1, "slot": 0, "result": a.2 },
+                    { "name": b.0, "race": b.1, "slot": 1, "result": b.2 }
+                ]
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn player_stats_aggregate_and_resolve_discord_ids() {
+        let (state, dir) = test_state();
+        // Link alice's account to a Discord id, like RK_DISCORD_IDS / claim does.
+        {
+            let conn = state.db.lock().unwrap();
+            db::set_account_discord(&conn, "alice", "111222").unwrap();
+        }
+        post(&state, "/api/matches", Some("secret"), match_two("s1", ("alice", "Zerg", "won"), ("bob", "Terran", "lost"))).await;
+        post(&state, "/api/matches", Some("secret"), match_two("s2", ("alice", "Terran", "lost"), ("bob", "Protoss", "won"))).await;
+        post(&state, "/api/matches", Some("secret"), match_two("s3", ("alice", "Zerg", "won"), ("carol", "Askosi", "lost"))).await;
+
+        // Stats resolve by name...
+        let (status, v) = get(&state, "/api/stats/alice", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["games"], 3);
+        assert_eq!(v["wins"], 2);
+        assert_eq!(v["losses"], 1);
+        assert_eq!(v["discord_id"], "111222");
+        // ... and by Discord id.
+        let (_, v2) = get(&state, "/api/stats/111222", None).await;
+        assert_eq!(v2["games"], 3);
+
+        // vs-race: Terran 1-0, Protoss 0-1, Askosi 1-0.
+        let vs = v["vs_race"].as_array().unwrap();
+        let find = |race: &str| {
+            vs.iter()
+                .find(|r| r["race"] == race)
+                .unwrap_or_else(|| panic!("missing vs {race}"))
+                .clone()
+        };
+        assert_eq!(find("Terran")["wins"], 1);
+        assert_eq!(find("Protoss")["losses"], 1);
+        assert_eq!(find("Askosi")["wins"], 1);
+
+        // own-race: Zerg 2-0, Terran 0-1.
+        let own = v["own_race"].as_array().unwrap();
+        let z = own.iter().find(|r| r["race"] == "Zerg").unwrap();
+        assert_eq!((z["wins"].as_i64(), z["games"].as_i64()), (Some(2), Some(2)));
+
+        // The opponent's stats work too (bob: 1-1).
+        let (_, b) = get(&state, "/api/stats/bob", None).await;
+        assert_eq!((b["wins"].as_i64(), b["losses"].as_i64()), (Some(1), Some(1)));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

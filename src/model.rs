@@ -54,6 +54,45 @@ pub struct PlayerSummary {
     pub race: String,
     pub slot: i64,
     pub result: String,
+    pub discord_id: String,
+}
+
+/// Per-opponent-race and per-own-race win/loss buckets.
+#[derive(Debug, Serialize)]
+pub struct RaceStat {
+    pub race: String,
+    pub games: i64,
+    pub wins: i64,
+    pub losses: i64,
+}
+
+/// One calendar week (ISO `YYYY-Www`) of the player's activity.
+#[derive(Debug, Serialize)]
+pub struct WeekStat {
+    pub week: String,
+    pub games: i64,
+    pub wins: i64,
+}
+
+/// The full stats page for one player identity (Discord id or name).
+#[derive(Debug, Serialize)]
+pub struct PlayerStats {
+    /// The identity this stats page resolved to.
+    pub id: String,
+    /// Player name(s) seen under this identity.
+    pub names: Vec<String>,
+    pub discord_id: String,
+    pub games: i64,
+    pub wins: i64,
+    pub losses: i64,
+    /// W/L against each opponent race.
+    pub vs_race: Vec<RaceStat>,
+    /// W/L while playing each race.
+    pub own_race: Vec<RaceStat>,
+    /// Activity per ISO week (progress over time).
+    pub weekly: Vec<WeekStat>,
+    /// The ten most recent matches of this player.
+    pub recent: Vec<MatchSummary>,
 }
 
 /// List filters (`GET /api/matches` query parameters).

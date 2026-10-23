@@ -14,6 +14,9 @@
   .won { color: #7fd07f; } .lost { color: #e08a8a; }
   a { color: #6ab0f3; text-decoration: none; }
   .token { margin-bottom: 1rem; }
+  .dim { color: #8fa1b3; }
+  .card { border: 1px solid #333d4a; border-radius: 8px; padding: 1rem; margin-top: 1.2rem; }
+  .small { font-size: .85rem; color: #8fa1b3; }
 </style>
 </head>
 <body>
@@ -40,6 +43,7 @@
   <tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody>
 </table>
 <div id="total"></div>
+<div id="stats" class="card" style="display:none"></div>
 <script src="app.js"></script>
 </body>
 </html>
