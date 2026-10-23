@@ -1,0 +1,14 @@
+services:
+  replay-kraken:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+    environment:
+      RK_BIND: "0.0.0.0:8787"
+      RK_TOKENS: "${RK_TOKENS:-admin:changeme}"
+      RK_WEBHOOK_URL: "${RK_WEBHOOK_URL:-}"
+      RK_PUBLIC_READ: "${RK_PUBLIC_READ:-1}"
+      RK_BASE_URL: "${RK_BASE_URL:-http://localhost:8787}"
+    restart: unless-stopped

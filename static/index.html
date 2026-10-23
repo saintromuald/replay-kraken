@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Replay Kraken</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #101418; color: #dde3ea; }
+  h1 { font-size: 1.4rem; }
+  .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+  .filters input, .filters select, .filters button { padding: 0.4rem; background: #1b222b; color: #dde3ea; border: 1px solid #333d4a; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #232c36; }
+  th { color: #8fa1b3; font-weight: 600; }
+  .won { color: #7fd07f; } .lost { color: #e08a8a; }
+  a { color: #6ab0f3; text-decoration: none; }
+  .token { margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<h1>Replay Kraken</h1>
+<div class="token">
+  <label>API token (for following):</label>
+  <input id="token" type="password" placeholder="optional" style="width: 24rem">
+</div>
+<div class="filters">
+  <input id="player" placeholder="player name">
+  <select id="race"><option value="">any race</option><option>Zerg</option><option>Terran</option><option>Protoss</option><option>Askosi</option></select>
+  <select id="result"><option value="">any result</option><option value="won">won</option><option value="lost">lost</option></select>
+  <input id="matchup" placeholder="matchup, e.g. ZvT">
+  <select id="followed"><option value="">all matches</option><option value="1">followed players only</option></select>
+  <input id="from" type="date" title="from date">
+  <input id="to" type="date" title="to date">
+  <button id="go">Filter</button>
+  <button id="reset">Reset</button>
+</div>
+<table>
+  <thead><tr>
+    <th>Date</th><th>Map</th><th>Matchup</th><th>Players</th><th></th><th>Replay</th>
+  </tr></thead>
+  <tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody>
+</table>
+<div id="total"></div>
+<script src="app.js"></script>
+</body>
+</html>
